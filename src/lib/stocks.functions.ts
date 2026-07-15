@@ -83,22 +83,32 @@ function rollingMean(values: (number | null)[], window: number): (number | null)
   return out;
 }
 
-async function yahooFetch(url: string): Promise<Response> {
-  return fetch(url, {
-    headers: {
-      "User-Agent": UA,
-      Accept: "application/json,text/plain,*/*",
-      "Accept-Language": "en-US,en;q=0.9",
-    },
-  });
+async function yahooFetch(path: string): Promise<Response> {
+  // Yahoo rate-limits per-host aggressively from cloud IPs. Try query1, then query2.
+  const hosts = ["https://query1.finance.yahoo.com", "https://query2.finance.yahoo.com"];
+  let last: Response | null = null;
+  for (const host of hosts) {
+    const res = await fetch(host + path, {
+      headers: {
+        "User-Agent": UA,
+        Accept: "application/json,text/plain,*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        Referer: "https://finance.yahoo.com/",
+        Origin: "https://finance.yahoo.com",
+      },
+    });
+    if (res.ok) return res;
+    last = res;
+    if (res.status !== 429 && res.status !== 401 && res.status !== 403) return res;
+  }
+  return last as Response;
 }
+
 
 async function fetchLongName(symbol: string): Promise<string> {
   try {
     const res = await yahooFetch(
-      `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(
-        symbol,
-      )}&quotesCount=1&newsCount=0`,
+      `/v1/finance/search?q=${encodeURIComponent(symbol)}&quotesCount=1&newsCount=0`,
     );
     if (!res.ok) return symbol;
     const json = (await res.json()) as {
@@ -114,7 +124,7 @@ async function fetchLongName(symbol: string): Promise<string> {
 async function fetchMarketCap(symbol: string): Promise<number | null> {
   try {
     const res = await yahooFetch(
-      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbol)}`,
+      `/v7/finance/quote?symbols=${encodeURIComponent(symbol)}`,
     );
     if (!res.ok) return null;
     const json = (await res.json()) as {
@@ -137,11 +147,11 @@ export const getStockAnalysis = createServerFn({ method: "POST" })
       throw new Error("Invalid date range");
     }
 
-    const chartUrl =
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}` +
+    const chartPath =
+      `/v8/finance/chart/${encodeURIComponent(symbol)}` +
       `?period1=${startTs}&period2=${endTs}&interval=1d&includePrePost=false&events=div%2Csplit`;
 
-    const chartRes = await yahooFetch(chartUrl);
+    const chartRes = await yahooFetch(chartPath);
     if (!chartRes.ok) {
       throw new Error(`Unable to fetch stock data (HTTP ${chartRes.status})`);
     }
