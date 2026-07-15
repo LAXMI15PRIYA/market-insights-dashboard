@@ -83,15 +83,27 @@ function rollingMean(values: (number | null)[], window: number): (number | null)
   return out;
 }
 
-async function yahooFetch(url: string): Promise<Response> {
-  return fetch(url, {
-    headers: {
-      "User-Agent": UA,
-      Accept: "application/json,text/plain,*/*",
-      "Accept-Language": "en-US,en;q=0.9",
-    },
-  });
+async function yahooFetch(path: string): Promise<Response> {
+  // Yahoo rate-limits per-host aggressively from cloud IPs. Try query1, then query2.
+  const hosts = ["https://query1.finance.yahoo.com", "https://query2.finance.yahoo.com"];
+  let last: Response | null = null;
+  for (const host of hosts) {
+    const res = await fetch(host + path, {
+      headers: {
+        "User-Agent": UA,
+        Accept: "application/json,text/plain,*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        Referer: "https://finance.yahoo.com/",
+        Origin: "https://finance.yahoo.com",
+      },
+    });
+    if (res.ok) return res;
+    last = res;
+    if (res.status !== 429 && res.status !== 401 && res.status !== 403) return res;
+  }
+  return last as Response;
 }
+
 
 async function fetchLongName(symbol: string): Promise<string> {
   try {
