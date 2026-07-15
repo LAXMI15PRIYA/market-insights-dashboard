@@ -91,33 +91,76 @@ const BACKOFF_MS = [2000, 4000]; // 1st retry after 2s, 2nd after 4s
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+const UAS = [
+  UA,
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+];
+
+// Session cookie primed from finance.yahoo.com so subsequent query* calls
+// look like a real browser navigating from finance.yahoo.com (Yahoo's
+// edge is much more permissive when a valid A1/A3 cookie is present).
+let cachedCookie: string | null = null;
+let cookieExpires = 0;
+
+async function primeCookie(): Promise<string | null> {
+  if (cachedCookie && Date.now() < cookieExpires) return cachedCookie;
+  try {
+    const res = await fetch("https://fc.yahoo.com/", {
+      headers: { "User-Agent": UA, Accept: "*/*" },
+      redirect: "manual",
+    });
+    // Node/undici exposes multiple Set-Cookie via getSetCookie() (fallback to raw header).
+    const anyHeaders = res.headers as unknown as { getSetCookie?: () => string[] };
+    const raw =
+      typeof anyHeaders.getSetCookie === "function"
+        ? anyHeaders.getSetCookie()
+        : ([res.headers.get("set-cookie")].filter(Boolean) as string[]);
+    const pairs = raw
+      .map((c) => c.split(";", 1)[0].trim())
+      .filter((c) => c.length > 0);
+    if (pairs.length > 0) {
+      cachedCookie = pairs.join("; ");
+      cookieExpires = Date.now() + 30 * 60 * 1000; // 30 min
+      return cachedCookie;
+    }
+  } catch {
+    /* ignore, will just fetch without a cookie */
+  }
+  return null;
+}
+
 /**
  * Fetch a Yahoo Finance path with:
- *   - host fallback (query1 → query2) on each attempt
- *   - exponential backoff: retry after 2s, then 4s
+ *   - primed session cookie from finance.yahoo.com
+ *   - host fallback (query1 → query2) with UA rotation on each attempt
+ *   - exponential backoff (2s → 4s) with jitter
  *   - throws a friendly rate-limit error after all retries fail
  */
 async function yahooFetch(path: string): Promise<Response> {
   const hosts = ["https://query1.finance.yahoo.com", "https://query2.finance.yahoo.com"];
-  const headers = {
-    "User-Agent": UA,
-    Accept: "application/json,text/plain,*/*",
-    "Accept-Language": "en-US,en;q=0.9",
-    Referer: "https://finance.yahoo.com/",
-    Origin: "https://finance.yahoo.com",
-  };
+  const cookie = await primeCookie();
 
-  const attempts = BACKOFF_MS.length + 1; // initial + retries
+  const attempts = BACKOFF_MS.length + 1;
   let lastStatus = 0;
 
   for (let attempt = 0; attempt < attempts; attempt++) {
-    for (const host of hosts) {
+    for (let h = 0; h < hosts.length; h++) {
+      const host = hosts[h];
+      const ua = UAS[(attempt + h) % UAS.length];
+      const headers: Record<string, string> = {
+        "User-Agent": ua,
+        Accept: "application/json,text/plain,*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        Referer: "https://finance.yahoo.com/",
+        Origin: "https://finance.yahoo.com",
+      };
+      if (cookie) headers.Cookie = cookie;
       try {
         const res = await fetch(host + path, { headers });
         if (res.ok) return res;
         lastStatus = res.status;
-        if (!RETRYABLE_STATUSES.has(res.status)) return res; // non-retryable → return as-is
-        // otherwise fall through: try next host, then backoff
+        if (!RETRYABLE_STATUSES.has(res.status)) return res;
       } catch (err) {
         console.warn(`[yahooFetch] network error on ${host}${path}:`, err);
         lastStatus = 0;
@@ -125,13 +168,17 @@ async function yahooFetch(path: string): Promise<Response> {
     }
     const delay = BACKOFF_MS[attempt];
     if (delay != null) {
+      const jitter = Math.floor(Math.random() * 500);
       console.warn(
-        `[yahooFetch] ${path} failed (status ${lastStatus}). Retrying in ${delay}ms…`,
+        `[yahooFetch] ${path} failed (status ${lastStatus}). Retrying in ${delay + jitter}ms…`,
       );
-      await sleep(delay);
+      await sleep(delay + jitter);
     }
   }
 
+  // Invalidate cookie so the next request re-primes.
+  cachedCookie = null;
+  cookieExpires = 0;
   throw new Error(RATE_LIMIT_MESSAGE);
 }
 
