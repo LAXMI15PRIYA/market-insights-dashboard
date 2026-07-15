@@ -83,26 +83,76 @@ function rollingMean(values: (number | null)[], window: number): (number | null)
   return out;
 }
 
+const RATE_LIMIT_MESSAGE =
+  "Yahoo Finance is temporarily rate-limited. Please try again later.";
+
+const RETRYABLE_STATUSES = new Set([429, 401, 403, 500, 502, 503, 504]);
+const BACKOFF_MS = [2000, 4000]; // 1st retry after 2s, 2nd after 4s
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Fetch a Yahoo Finance path with:
+ *   - host fallback (query1 → query2) on each attempt
+ *   - exponential backoff: retry after 2s, then 4s
+ *   - throws a friendly rate-limit error after all retries fail
+ */
 async function yahooFetch(path: string): Promise<Response> {
-  // Yahoo rate-limits per-host aggressively from cloud IPs. Try query1, then query2.
   const hosts = ["https://query1.finance.yahoo.com", "https://query2.finance.yahoo.com"];
-  let last: Response | null = null;
-  for (const host of hosts) {
-    const res = await fetch(host + path, {
-      headers: {
-        "User-Agent": UA,
-        Accept: "application/json,text/plain,*/*",
-        "Accept-Language": "en-US,en;q=0.9",
-        Referer: "https://finance.yahoo.com/",
-        Origin: "https://finance.yahoo.com",
-      },
-    });
-    if (res.ok) return res;
-    last = res;
-    if (res.status !== 429 && res.status !== 401 && res.status !== 403) return res;
+  const headers = {
+    "User-Agent": UA,
+    Accept: "application/json,text/plain,*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+    Referer: "https://finance.yahoo.com/",
+    Origin: "https://finance.yahoo.com",
+  };
+
+  const attempts = BACKOFF_MS.length + 1; // initial + retries
+  let lastStatus = 0;
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    for (const host of hosts) {
+      try {
+        const res = await fetch(host + path, { headers });
+        if (res.ok) return res;
+        lastStatus = res.status;
+        if (!RETRYABLE_STATUSES.has(res.status)) return res; // non-retryable → return as-is
+        // otherwise fall through: try next host, then backoff
+      } catch (err) {
+        console.warn(`[yahooFetch] network error on ${host}${path}:`, err);
+        lastStatus = 0;
+      }
+    }
+    const delay = BACKOFF_MS[attempt];
+    if (delay != null) {
+      console.warn(
+        `[yahooFetch] ${path} failed (status ${lastStatus}). Retrying in ${delay}ms…`,
+      );
+      await sleep(delay);
+    }
   }
-  return last as Response;
+
+  throw new Error(RATE_LIMIT_MESSAGE);
 }
+
+/**
+ * In-memory cache (5 min TTL) + in-flight dedupe.
+ * Cache key is the full stringified input so different symbols/date ranges are isolated.
+ */
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const analysisCache = new Map<string, { data: StockAnalysis; expires: number }>();
+const inFlight = new Map<string, Promise<StockAnalysis>>();
+
+function getCached(key: string): StockAnalysis | null {
+  const entry = analysisCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expires) {
+    analysisCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
 
 
 async function fetchLongName(symbol: string): Promise<string> {
