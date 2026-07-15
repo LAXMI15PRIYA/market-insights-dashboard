@@ -190,12 +190,24 @@ export const getStockAnalysis = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => InputSchema.parse(input))
   .handler(async ({ data }): Promise<StockAnalysis> => {
     const symbol = data.symbol.toUpperCase();
-    const startTs = Math.floor(new Date(`${data.start}T00:00:00Z`).getTime() / 1000);
-    const endTs = Math.floor(new Date(`${data.end}T23:59:59Z`).getTime() / 1000);
+    const cacheKey = `${symbol}|${data.start}|${data.end}`;
 
-    if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || endTs <= startTs) {
-      throw new Error("Invalid date range");
-    }
+    // 1) Cached hit → return immediately.
+    const cached = getCached(cacheKey);
+    if (cached) return cached;
+
+    // 2) In-flight dedupe → reuse the same promise for concurrent identical requests.
+    const existing = inFlight.get(cacheKey);
+    if (existing) return existing;
+
+    const promise = (async (): Promise<StockAnalysis> => {
+      const startTs = Math.floor(new Date(`${data.start}T00:00:00Z`).getTime() / 1000);
+      const endTs = Math.floor(new Date(`${data.end}T23:59:59Z`).getTime() / 1000);
+
+      if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || endTs <= startTs) {
+        throw new Error("Invalid date range");
+      }
+
 
     const chartPath =
       `/v8/finance/chart/${encodeURIComponent(symbol)}` +
