@@ -299,20 +299,31 @@ export const getStockAnalysis = createServerFn({ method: "POST" })
       fetchMarketCap(symbol),
     ]);
 
-    return {
-      symbol: meta.symbol ?? symbol,
-      longName,
-      currency: meta.currency ?? "",
-      exchange: meta.exchangeName ?? "",
-      currentPrice,
-      previousClose,
-      change,
-      changePercent,
-      latestOpen: last?.open ?? null,
-      latestHigh: last?.high ?? null,
-      latestLow: last?.low ?? null,
-      latestVolume: last?.volume ?? null,
-      marketCap,
-      series,
-    };
+      return {
+        symbol: meta.symbol ?? symbol,
+        longName,
+        currency: meta.currency ?? "",
+        exchange: meta.exchangeName ?? "",
+        currentPrice,
+        previousClose,
+        change,
+        changePercent,
+        latestOpen: last?.open ?? null,
+        latestHigh: last?.high ?? null,
+        latestLow: last?.low ?? null,
+        latestVolume: last?.volume ?? null,
+        marketCap,
+        series,
+      };
+    })();
+
+    inFlight.set(cacheKey, promise);
+    try {
+      const result = await promise;
+      analysisCache.set(cacheKey, { data: result, expires: Date.now() + CACHE_TTL_MS });
+      return result;
+    } finally {
+      inFlight.delete(cacheKey);
+    }
   });
+
