@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
-import { useServerFn, ClientOnly } from "@tanstack/react-router";
+import { ClientOnly } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { lazy, Suspense, useRef, useState } from "react";
 import { format } from "date-fns";
 import {
