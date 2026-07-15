@@ -108,9 +108,7 @@ async function yahooFetch(path: string): Promise<Response> {
 async function fetchLongName(symbol: string): Promise<string> {
   try {
     const res = await yahooFetch(
-      `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(
-        symbol,
-      )}&quotesCount=1&newsCount=0`,
+      `/v1/finance/search?q=${encodeURIComponent(symbol)}&quotesCount=1&newsCount=0`,
     );
     if (!res.ok) return symbol;
     const json = (await res.json()) as {
@@ -126,7 +124,7 @@ async function fetchLongName(symbol: string): Promise<string> {
 async function fetchMarketCap(symbol: string): Promise<number | null> {
   try {
     const res = await yahooFetch(
-      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbol)}`,
+      `/v7/finance/quote?symbols=${encodeURIComponent(symbol)}`,
     );
     if (!res.ok) return null;
     const json = (await res.json()) as {
@@ -149,11 +147,11 @@ export const getStockAnalysis = createServerFn({ method: "POST" })
       throw new Error("Invalid date range");
     }
 
-    const chartUrl =
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}` +
+    const chartPath =
+      `/v8/finance/chart/${encodeURIComponent(symbol)}` +
       `?period1=${startTs}&period2=${endTs}&interval=1d&includePrePost=false&events=div%2Csplit`;
 
-    const chartRes = await yahooFetch(chartUrl);
+    const chartRes = await yahooFetch(chartPath);
     if (!chartRes.ok) {
       throw new Error(`Unable to fetch stock data (HTTP ${chartRes.status})`);
     }
