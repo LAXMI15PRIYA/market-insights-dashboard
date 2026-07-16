@@ -43,7 +43,7 @@ This repo also includes [`stock_price_analyser.ipynb`](./stock_price_analyser.ip
 
 ## 🖥️ Live Demo
 
-🔗 [View Live App](#) <!-- Replace # with your Lovable preview/deployment link -->
+🔗 [View Live App](https://id-preview--4552a1e1-334b-4936-9cd4-bb87a8f6003a.lovable.app)
 
 ---
 
@@ -52,8 +52,8 @@ This repo also includes [`stock_price_analyser.ipynb`](./stock_price_analyser.ip
 Clone the repo and run it locally:
 
 ```bash
-git clone https://github.com/LAXMI15PRIYA/stock-price-analyzer.git
-cd stock-price-analyzer
+git clone https://github.com/LAXMI15PRIYA/market-insights-dashboard.git
+cd market-insights-dashboard
 bun install
 bun run dev
 ```
@@ -78,3 +78,5 @@ Aspiring AI Engineer / Data Analyst | M.Tech AI & Data Science, SRMIST
 ---
 
 ⭐ If you found this project useful, consider giving it a star!
+
+
